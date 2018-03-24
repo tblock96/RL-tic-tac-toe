@@ -1,6 +1,6 @@
 ## TIC-TAC-TOE with RL ##
 
-NUM_GAMES = 10
+NUM_GAMES = 1000
 '''
 Opponents: [RandomPlayer, BetterAI, RLAgent, HumanPlayer]
 '''
@@ -59,8 +59,8 @@ class TTTGame():
             return
         if self.get_free_squares(board) == []:
             self.winners.append(" ")
-            self.playerO.get_reward(0)
-            self.playerX.get_reward(0)
+            self.playerO.get_reward(-0)
+            self.playerX.get_reward(-0)
             # self.print_board_and_legend(board)
             return
         self.new_turn(board, mark)
@@ -162,10 +162,10 @@ class HumanPlayer(TicTacToePlayer):     # Your turn!
     def get_reward(self, reward):
         if reward == 1:
             print("YOU WIN!!")
-        elif reward == 0:
-            print("DRAW")
-        else:
+        elif reward == -1:
             print("YOU LOSE!! :(")
+        else:
+            print("DRAW")
         self.print_board_and_legend(self.game.board)
 
 class BetterAI(TicTacToePlayer):        # WILL NEVER LOSE. The perfect TTT player.
@@ -232,15 +232,15 @@ class RLAgent(TicTacToePlayer):
     alpha = 0.5
     back = 1
     eps = 1
-    eps_slope = 1e-4
-    min_eps = 0.001
+    eps_slope = 1e-5
+    min_eps = 0.000
     prev_states = []
     
     def __init__(self, game, mark, load = False):
         TicTacToePlayer.__init__(self, game, mark)
-        if mark == "O":
-            self.min_eps = 0.1
-            self.eps_slope = 1e-3
+        # if mark == "O":
+        #     self.min_eps = 0.1
+        #     self.eps_slope = 1e-3
         if load:
             self.read_state()
         
@@ -366,7 +366,7 @@ def train():
         while games_played < num_games:
             ttt.new_game()
             games_played += 1
-            dt = 100
+            dt = 1000
             winner = ttt.winners[-dt:]
             xwins = count(winner, "X")
             owins = count(winner, "O")
@@ -382,6 +382,7 @@ def train():
             plt.legend(["Wins", "Losses", "Draws"], loc = 0)
             plt.title("Trial "+str(trials))
             plt.ylabel("Ratio of wins in last "+str(dt))
+            plt.ylim([0,1])
             plt.xlabel("Episodes")
             plt.show()
         ttt.playerX.save_state()
@@ -391,6 +392,7 @@ def train():
     if again == "Y":
         ttt.playerX.eps = 0.00
         ttt.playerX.min_eps = 0.0
+        ttt.playerO = HumanPlayer(ttt, "O")
         while again == "Y":
             if again == "R":
                 ttt.playerO = RandomPlayer(ttt, "O")
@@ -408,6 +410,19 @@ def train():
 if __name__ == "__main__":
     
     opponents = [RandomPlayer, BetterAI, RLAgent, HumanPlayer]
+    opp = ["0: Random", "1: Perfect", "2: Learning", "3: Human"]
+    for obj in opp:
+        print(obj)
+    ans = input("Pick an opponent by index from the options above. [0-3]    ")
+    try:
+        ans = int(ans)
+        if ans >= 0 and ans <= 3:
+            OPPONENT_INDEX = ans
+    except Exception: pass
+    ans = input("How many games would you like to play?    ")
+    try:
+        NUM_GAMES = int(ans)
+    except Exception: pass
     loadx = input("Load state? Y/N   ")
     loadx = (loadx == "Y")
     playerX = RLAgent

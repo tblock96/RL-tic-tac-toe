@@ -1,28 +1,35 @@
 ## TIC-TAC-TOE with RL ##
 
-NUM_GAMES = 1000
+NUM_GAMES = 1000    # The number of games in one training round (DEFAULT)
 '''
 Opponents: [RandomPlayer, BetterAI, RLAgent, HumanPlayer]
 '''
-OPPONENT_INDEX = 3  # 0-3
+OPPONENT_INDEX = 2  # 0-3, see above (DEFAULT)
 
-import random
-import json
+import random       # for obvious reasons
+import json         # for saving the agent state
 try:
-    import matplotlib.pyplot as plt
+    import matplotlib.pyplot as plt         # for plotting the training data
     has_pyplot = True
-except ImportError: has_pyplot = False
+except ImportError: has_pyplot = False      # plotting is optional
 
 class TTTGame():
+    '''This class controls the game, calling each player to make a move,
+    updating the board, and checking if there's a winner. It also gives out
+    rewards based on who won or if there was a draw.'''
     
     def __init__(self, playerX, playerO, load_x_state = False):
-        self.second_mark = "O"
+        '''playerX, playerO: Child Classes of TicTacToePlayer'''
+        self.second_mark = "O"  # The opposite mark will start the game
         if playerX != RLAgent: load_x_state = False
+        # If the user opts to load_x_state, the RLAgent playing as "X" will
+        # load values as last saved below
         self.playerX = playerX(self, "X", load_x_state)
         self.playerO = playerO(self, "O")
-        self.winners = []
+        self.winners = []       # will keep track of who won most recently
     
     def new_game(self):
+        '''Reset the board, switch who goes first and start the game!'''
         self.board = self.make_empty_board()
         self.playerX.board = self.board
         self.playerO.board = self.board
@@ -30,24 +37,29 @@ class TTTGame():
         self.new_turn(self.board, self.second_mark)
     
     def put_in_board(self, board, mark, square_num):
+        '''Updates the board with the mark put in the square_num'''
         board_row = (square_num - 1) // 3
         board_col = (square_num - 1) % 3
         if [board_row, board_col] in get_free_squares(board):
             board[board_row][board_col] = mark
         else:
-            return False
+            return False    # That square is already taken
     
     def new_turn(self, board, last_mark):
-        mark = self.get_other_mark(last_mark)
-        prompt = "Enter your move ("+mark+"):"
+        '''Should be self-explanatory'''
+        mark = self.get_other_mark(last_mark) # switch players from last turn
+        # Call the .move function for the appropriate player
         if mark == "O":
             move = self.playerO.move(self.board)
         if mark == "X":
             move = self.playerX.move(self.board)
+        # .move returns a list [i, j]
         i, j = move
+        # Each player checks if their move is valid already, so it just gets entered
         board[i][j] = mark
+        # Now we check if the game just got won by whoever moved
         if self.is_win(board, mark):
-            # self.print_board_and_legend(board)
+            # If so, we give out the proper rewards and end the game
             if mark == "X":
                 self.winners.append("X")
                 self.playerX.get_reward(1)
@@ -57,20 +69,26 @@ class TTTGame():
                 self.playerO.get_reward(1)
                 self.playerX.get_reward(-1)
             return
+        # If nobody has won but the board is full...
         if self.get_free_squares(board) == []:
+            # Then it's a draw
             self.winners.append(" ")
-            self.playerO.get_reward(-0)
-            self.playerX.get_reward(-0)
-            # self.print_board_and_legend(board)
+            self.playerO.get_reward(0)
+            self.playerX.get_reward(0)
             return
+        # If nobody has won and the board isn't full, we go to the next turn
         self.new_turn(board, mark)
             
     def is_win(self, board, mark):
+        '''Returns true if the game is won by mark'''
         for ind in range(3):
+            # Checks rows
             if self.is_row_all_marks(board, ind, mark):
                 return True
+            # Checks columns
             if self.is_col_all_marks(board, ind, mark):
                 return True
+        # Checks diagonals
         if self.is_diags_all_marks(board, mark):
             return True
         return False
@@ -96,8 +114,8 @@ class TTTGame():
             return True
         return False
     
-    
     def get_free_squares(self, board):
+        '''Returns a list of empty squares in form [[i,j],[i,j]]'''
         empty_squares=[]
         for i in range(3):
             for j in range(3):
@@ -229,34 +247,33 @@ class BetterAI(TicTacToePlayer):        # WILL NEVER LOSE. The perfect TTT playe
 class RLAgent(TicTacToePlayer):
     
     valueTable = {}
-    alpha = 0.5
-    back = 1
-    eps = 1
-    eps_slope = 1e-5
-    min_eps = 0.000
-    prev_states = []
+    alpha = 0.3     # The weight given to new rewards (0.5 is quite high)
+    back = 0.99        # gamma in the book
+    eps = 1         # Starting e in the e-greedy scheme
+    eps_slope = 1e-5        # The amount that e reduces every turn
+    min_eps = 0.001     # the minimum e (normally above 0)
+    prev_states = []    # keeps track of the states faced in the game so far
     
     def __init__(self, game, mark, load = False):
         TicTacToePlayer.__init__(self, game, mark)
-        # if mark == "O":
-        #     self.min_eps = 0.1
-        #     self.eps_slope = 1e-3
         if load:
             self.read_state()
         
     def check_model(self, move):
         '''Return the board after a given move is made. Assume move is legal.'''
-        #deep copy the board.
+        # deep copy the board.
         brd = [[],[],[]]
         for i in range(3):
             for j in range(3):
                 brd[i].append(self.board[i][j])
-        #get new board with move
+        # get new board with move
         i, j = move
         brd[i][j] = self.mark
         return brd
     
     def update_table(self, prev_states, reward):
+        ''' Backs up the reward to the states that preceded it.
+        Gradually makes states that lead to wins more often more appealing.'''
         add = reward
         for s in prev_states:
             try:
@@ -264,32 +281,27 @@ class RLAgent(TicTacToePlayer):
             except KeyError:
                 self.valueTable[s] = add
             add = self.back * add
-        # Normalize
-        '''
-        max = 0
-        for val in self.valueTable.values():
-            if abs(val) > max:
-                max = abs(val)
-        if max > 0:
-            for s, val in self.valueTable.items():
-                self.valueTable[s] = val/max
-        '''
     
     def get_reward(self, reward):
+        '''This function is called by the TTTGame running the show'''
         self.update_table(self.prev_states, reward)
+        # If get_reward is called, the game has ended, so clear prev_states
         self.prev_states = []
     
     def take_turn(self, board):
         moves = self.game.get_free_squares(board)
-        if random.random() < self.eps:
+        if random.random() < self.eps:      # Check if we're going to make a random move
             move = moves[random.randint(0, len(moves)-1)]
             next_brd = self.check_model(move)
         else:
             max = None
             move = 0
             next_brd = 0
+            # for each available move:
             for mv in moves:
+                # check what state that move will create
                 brd = self.check_model(mv)
+                # check the value of that state
                 try:
                     val = self.valueTable[self.get_state(brd)]
                 except KeyError:
@@ -297,18 +309,25 @@ class RLAgent(TicTacToePlayer):
                 if max != None:
                     if val <= max:
                         continue
+                # if that's the max value, save the value, the move, and the board
                 max = val
                 move = mv
                 next_brd = brd
+        # update e for e-greedy
         self.eps -= self.eps_slope
         if self.eps < self.min_eps: self.eps = self.min_eps
+        # place the updated board in prev_states
         self.prev_states.insert(0,self.get_state(next_brd))
+        # ...
         return move
     
     def move(self, board):
+        '''This is the function called by TTTGame'''
         return self.take_turn(board)
     
     def get_state(self, board):
+        '''Return the board converted into a string representation, which will
+        be the state'''
         state = ""
         for i in range(3):
             for j in range(3):
@@ -344,6 +363,7 @@ def sort_by_val(dict):
     return lis
 
 def count(list, value):
+    '''Return how many times value appears in list'''
     val = 0 
     for v in list:
         if v == value:
@@ -351,31 +371,39 @@ def count(list, value):
     return val
 
 def train():
+    '''The loop that improves playerX (and maybe playerO too)'''
     again = "Y"
     trials = 0
-    while again == "Y":
+    while upper(again) == "Y":
         trials += 1
         num_games = NUM_GAMES
         games_played = 0
+        # The following is for graphing purposes
         xwins = 0
         owins = 0
         draws = 0
         points = []
         losses = []
         draw = []
+        # The actual loop
         while games_played < num_games:
+            # Play a game
             ttt.new_game()
             games_played += 1
+            # Get the last dt winners
             dt = 1000
             winner = ttt.winners[-dt:]
+            # Count how many each player won (for graphing)
             xwins = count(winner, "X")
             owins = count(winner, "O")
             draws = count(winner, " ")
             points.append(xwins/min(games_played,dt))
             draw.append(draws/min(games_played,dt))
             losses.append(owins/min(games_played,dt))
+            # Update the user
             if games_played % 1000 == 0:
                 print("%d games played of %d" %(games_played, num_games))
+        # Graph
         if has_pyplot:
             lis = range(1, games_played+1)
             plt.plot(lis, points, lis, losses, lis, draw)
@@ -385,11 +413,13 @@ def train():
             plt.ylim([0,1])
             plt.xlabel("Episodes")
             plt.show()
+        # Saves the state-value table for playerX
         ttt.playerX.save_state()
+        # User can choose to train consecutive times
         again = input("Train again? Y/N  ")
-    # print(sort_by_val(ttt.playerX.valueTable))
+    # You can then choose to play against playerX yourself
     again = input("Would you like to test? Y/N   ")
-    if again == "Y":
+    if upper(again) == "Y":
         ttt.playerX.eps = 0.00
         ttt.playerX.min_eps = 0.0
         ttt.playerO = HumanPlayer(ttt, "O")
@@ -400,8 +430,10 @@ def train():
                 ttt.playerO = HumanPlayer(ttt, "O")
             ttt.new_game()
             again = input("Play again? Y/N   ")
+    # And after testing, you can go back to the loop above. If playerO was
+    # learning, their progress will be lost
     again = input("Train more? Y/N   ")
-    if again == "Y":
+    if upper(again) == "Y":
         ttt.playerX.read_state()
         ttt.playerO = opponents[OPPONENT_INDEX](ttt, "O")
         train()
@@ -414,6 +446,7 @@ if __name__ == "__main__":
     for obj in opp:
         print(obj)
     ans = input("Pick an opponent by index from the options above. [0-3]    ")
+    # If you don't pick a valid number, it defaults the the one at the top of the file
     try:
         ans = int(ans)
         if ans >= 0 and ans <= 3:
